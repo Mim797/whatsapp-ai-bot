@@ -5,6 +5,14 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { GoogleGenAI } = require('@google/genai');
 
+// --- CRASH SHIELD (Prevents the bot from ever shutting down) ---
+process.on('unhandledRejection', (reason, promise) => {
+  console.log('Handled unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.log('Handled uncaught exception:', err);
+});
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const knowledgeBase = fs.readFileSync('knowledge.txt', 'utf-8');
 
@@ -25,7 +33,6 @@ ${knowledgeBase}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Complete flags to make WhatsApp Web link smoothly on cloud servers
 const client = new Client({
   authStrategy: new LocalAuth(),
   webVersionCache: {
@@ -55,7 +62,7 @@ client.on('qr', async (qr) => {
 });
 
 client.on('authenticated', () => {
-  console.log('🔑 Authentication successful! Loading chats...');
+  console.log('🔑 Authentication successful!');
 });
 
 client.on('ready', () => {
@@ -63,29 +70,31 @@ client.on('ready', () => {
   console.log('✅ BOT IS ONLINE AND CONNECTED TO WHATSAPP!');
 });
 
-client.on('auth_failure', (msg) => {
-  console.error('❌ Auth failure:', msg);
-});
-
 const userConversations = new Map();
 
-// Handles incoming messages
+// --- INCOMING MESSAGE HANDLER ---
 client.on('message', async (msg) => {
-  console.log(`📩 Incoming message from ${msg.from}: ${msg.body}`);
-
-  if (msg.isStatus) return;
-
-  const chat = await msg.getChat();
-  if (chat.isGroup) return;
-
-  const senderId = msg.from;
-  const userText = msg.body?.trim();
-  if (!userText) return;
-
   try {
+    console.log(`📩 Incoming message from ${msg.from}: ${msg.body}`);
+
+    // Skip status updates and group messages safely without crashing
+    if (msg.isStatus || msg.from.includes('@g.us') || msg.broadcast) return;
+
+    const senderId = msg.from;
+    const userText = msg.body?.trim();
+    if (!userText) return;
+
     console.log(`🤖 Processing response for: "${userText}"`);
-    await sleep(2000);
-    await chat.sendStateTyping();
+
+    // Safe typing simulation
+    try {
+      const chat = await msg.getChat();
+      await chat.sendStateTyping();
+    } catch (e) {
+      // If typing indicator fails on new privacy IDs, ignore and continue
+    }
+
+    await sleep(2000); // Realistic human pause
 
     if (!userConversations.has(senderId)) {
       userConversations.set(senderId, []);
@@ -109,13 +118,14 @@ client.on('message', async (msg) => {
     });
 
     const botReply = response.text?.trim();
+
     if (botReply) {
-      console.log(`📤 Replying with: "${botReply}"`);
+      console.log(`📤 Replying to ${senderId} with: "${botReply}"`);
       history.push({ role: 'model', parts: [{ text: botReply }] });
-      await msg.reply(botReply);
+      await client.sendMessage(senderId, botReply);
     }
   } catch (err) {
-    console.error('❌ Error replying to message:', err);
+    console.error('❌ Error handling message:', err);
   }
 });
 
@@ -135,7 +145,7 @@ http.createServer((req, res) => {
             <h2 style="color:#128c7e;margin-top:0;">Scan With WhatsApp</h2>
             <p style="color:#555;">Settings &gt; Linked Devices &gt; Link a Device</p>
             <img src="${currentQrImage}" style="width:280px;height:280px;display:block;margin:15px auto;" alt="QR Code" />
-            <small style="color:#888;">This page auto-refreshes every 20 seconds.</small>
+            <small style="color:#888;">Auto-refreshes every 20 seconds.</small>
           </div>
         </body>
       </html>
