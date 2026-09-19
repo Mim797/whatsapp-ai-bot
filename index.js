@@ -11,18 +11,19 @@ process.on('uncaughtException', (e) => console.log('Handled exception:', e));
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const knowledgeBase = fs.readFileSync('knowledge.txt', 'utf-8');
 
+// --- تعليمات البائع الجزائري المحترف ---
 const SYSTEM_INSTRUCTION = `
-You are an expert human sales representative for BHB STORE on WhatsApp.
-Your goal is to guide customers naturally and close sales, strictly using the STORE INFORMATION and PRODUCTS below.
+أنت بائع بشري محترف في متجر BHB STORE على الواتساب.
+تتحدث بالدارجة الجزائرية فقط (أسلوب محترم، لبق، وطبيعي 100% مثلما يتحدث الباعة في الجزائر).
 
-HUMAN CONVERSATION RULES:
-1. ADDRESS ALL QUESTIONS: If the customer sends multiple questions or points, address all of them in a clear, single reply.
-2. LONG MEMORY: Remember previous messages carefully. If customer asks "shhal hada?" or "what colors?", answer regarding the specific product you were just discussing.
-3. NO REPEATED GREETINGS: Only greet the customer (e.g. "مرحبا بك في BHB STORE" or "وعليكم السلام") in your very first message. In follow-up messages, get straight to the point.
-4. STRICT CATALOG: Use ONLY products and prices from the catalog below. Never guess or invent details.
-5. LANGUAGE & TONE: Reply in the same language the customer uses (Algerian Darja, Arabic, French, English). Keep answers natural, friendly, and structured.
+قواعد أساسية لضمان ردود بشرية كاملة:
+1. الالتزام بملف المتجر: اعتمد 100% على السلع والأسعار والعروض المكتوبة في "معلومات المتجر والمنتجات" أدناه. إذا سأل الزبون على سلعة غير موجودة في هذا الملف، قل له باحترام أنها غير متوفرة حالياً.
+2. جمل كاملة ومنتهية دائماً: ممنوع تماماً أن تتوقف في نصف الكلمة أو نصف الجملة. أكمل رسالتك دائماً حتى آخر نقطة.
+3. دارجة جزائرية فقط: ممنوع منعاً باتاً كتابة أي جملة بالإنجليزية، وممنوع إخراج نصوص برمجية أو رموز غريبة مثل (** أو ### أو ):**).
+4. أسلوب الواتساب: نسق إجابتك بأسطر قصيرة ونقاط واضحة ومقروءة على شاشة الهاتف.
+5. لا تكرر الترحيب: رحب بالزبون في أول رسالة فقط. في باقي الرسائل، أجب عن سؤاله مباشرة دون إعادة الترحيب من البداية.
 
-CATALOG:
+--- معلومات المتجر والمنتجات ---
 ${knowledgeBase}
 `;
 
@@ -80,15 +81,14 @@ function getCleanHistory(rawHistory) {
   return clean;
 }
 
-// --- GEMINI 3 PRIORITY HIERARCHY ---
 const PRIORITY_MODELS = [
   'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
-  'gemini-2.5-flash',       // Older fallback
-  'gemini-2.0-flash'        // Emergency fallback
+  'gemini-2.5-flash',
+  'gemini-2.0-flash'
 ];
 
 async function askGemini(history) {
@@ -100,16 +100,20 @@ async function askGemini(history) {
       const res = await ai.models.generateContent({
         model: modelName,
         contents: cleanHistory,
-        config: { systemInstruction: SYSTEM_INSTRUCTION, temperature: 0.2, maxOutputTokens: 450 },
+        config: { 
+          systemInstruction: SYSTEM_INSTRUCTION, 
+          temperature: 0.2,
+          maxOutputTokens: 2000 // مساحة كافية جداً لإنهاء كل جملة بدون انقطاع
+        },
       });
 
       const text = res.text?.trim();
       if (text) {
-        return text; // Success!
+        return text;
       }
     } catch (err) {
-      console.log(`⚠️ ${modelName} busy/unavailable (${err.status || err.message}). Stepping down to next model...`);
-      await sleep(500); // Quick half-second transition
+      console.log(`⚠️ ${modelName} unavailable (${err.status || err.message}). Switching...`);
+      await sleep(500);
     }
   }
   return null;
@@ -167,7 +171,7 @@ client.on('message', async (msg) => {
       clearTimeout(buffer.timer);
     }
 
-    // Wait 3 seconds for customer to finish typing multiple messages
+    // انتظر 3 ثوانٍ ليفرغ الزبون من كتابة رسائله المتتالية
     buffer.timer = setTimeout(() => {
       processCustomerBatch(sender, msg);
     }, 3000);
