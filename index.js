@@ -83,10 +83,9 @@ async function generateAnswerWithRetry(history) {
 
       const replyText = response.text?.trim();
       if (replyText) {
-        return replyText; // Success! Return the answer
+        return replyText;
       }
     } catch (err) {
-      // If Google is temporarily busy (503 spike), wait 2 seconds and try again silently
       console.log(`⚠️ Google API busy (attempt ${attempt}). Retrying silently in 2 seconds...`);
       await sleep(2000);
       attempt++;
@@ -97,7 +96,6 @@ async function generateAnswerWithRetry(history) {
 // --- MESSAGE LISTENER ---
 client.on('message', async (msg) => {
   try {
-    // Ignore status updates, groups, and broadcasts
     if (msg.isStatus || msg.from.includes('@g.us') || msg.broadcast) return;
 
     const senderId = msg.from;
@@ -106,34 +104,11 @@ client.on('message', async (msg) => {
 
     console.log(`📩 [${senderId}]: "${userText}"`);
 
-    // Show "typing..." on WhatsApp
     try {
       const chat = await msg.getChat();
       await chat.sendStateTyping();
     } catch (e) {}
 
-    await sleep(2000); // 2-second realistic human pause
+    await sleep(2000);
 
-    // Initialize conversation memory if new
-    if (!userConversations.has(senderId)) {
-      userConversations.set(senderId, []);
-    }
-
-    const history = userConversations.get(senderId);
-
-    // Add user message to history
-    history.push({ role: 'user', parts: [{ text: userText }] });
-
-    // --- 50-MESSAGE HUMAN-LIKE MEMORY ---
-    if (history.length > 50) {
-      history.splice(0, history.length - 50);
-      // Ensure the history always starts with a user turn
-      if (history.length > 0 && history[0].role === 'model') {
-        history.shift();
-      }
-    }
-
-    // Retries quietly in the background until it gets the answer
-    const botReply = await generateAnswerWithRetry(history);
-
-    console.log(`📤 Replying to ${senderId}: "${botReply}"`);
+    if (!userConversations.has(senderId)
