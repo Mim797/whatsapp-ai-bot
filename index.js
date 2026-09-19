@@ -5,8 +5,8 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { GoogleGenAI } = require('@google/genai');
 
-process.on('unhandledRejection', (r) => console.log('Handled:', r));
-process.on('uncaughtException', (e) => console.log('Handled:', e));
+process.on('unhandledRejection', (r) => console.log('Handled rejection:', r));
+process.on('uncaughtException', (e) => console.log('Handled exception:', e));
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const knowledgeBase = fs.readFileSync('knowledge.txt', 'utf-8');
@@ -28,7 +28,6 @@ ${knowledgeBase}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// --- ULTRA LOW-MEMORY BROWSER SETTINGS (Under 250MB RAM for Render Free Tier) ---
 const client = new Client({
   authStrategy: new LocalAuth(),
   webVersionCache: {
@@ -45,9 +44,9 @@ const client = new Client({
       '--disable-extensions',
       '--no-first-run',
       '--no-zygote',
-      '--single-process', // CRUCIAL: Runs Chrome in 1 process instead of 6 to save RAM
+      '--single-process',
       '--disable-accelerated-2d-canvas',
-      '--js-flags=--max-old-space-size=256', // Hard limit JS to 256MB RAM
+      '--js-flags=--max-old-space-size=256',
     ],
   },
 });
@@ -81,21 +80,36 @@ function getCleanHistory(rawHistory) {
   return clean;
 }
 
+// --- GEMINI 3 PRIORITY HIERARCHY ---
+const PRIORITY_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',       // Older fallback
+  'gemini-2.0-flash'        // Emergency fallback
+];
+
 async function askGemini(history) {
   const cleanHistory = getCleanHistory(history);
 
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  for (const modelName of PRIORITY_MODELS) {
     try {
+      console.log(`🤖 Trying ${modelName}...`);
       const res = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: modelName,
         contents: cleanHistory,
         config: { systemInstruction: SYSTEM_INSTRUCTION, temperature: 0.2, maxOutputTokens: 450 },
       });
+
       const text = res.text?.trim();
-      if (text) return text;
+      if (text) {
+        return text; // Success!
+      }
     } catch (err) {
-      console.log(`⚠️ Gemini busy (attempt ${attempt}/4). Retrying silently...`);
-      await sleep(2000);
+      console.log(`⚠️ ${modelName} busy/unavailable (${err.status || err.message}). Stepping down to next model...`);
+      await sleep(500); // Quick half-second transition
     }
   }
   return null;
@@ -153,10 +167,10 @@ client.on('message', async (msg) => {
       clearTimeout(buffer.timer);
     }
 
-    // Wait 3.5 seconds for customer to finish typing multiple messages
+    // Wait 3 seconds for customer to finish typing multiple messages
     buffer.timer = setTimeout(() => {
       processCustomerBatch(sender, msg);
-    }, 3500);
+    }, 3000);
 
   } catch (err) {
     console.error('Error:', err);
