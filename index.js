@@ -25,20 +25,37 @@ ${knowledgeBase}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Complete flags to make WhatsApp Web link smoothly on cloud servers
 const client = new Client({
   authStrategy: new LocalAuth(),
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018944888-alpha.html',
+  },
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu',
+    ],
   },
 });
 
 let currentQrImage = null;
 
-// Convert QR code to an image URL
 client.on('qr', async (qr) => {
-  console.log('New QR code received, converting to image...');
+  console.log('⚡ New QR code ready to scan!');
   currentQrImage = await QRCode.toDataURL(qr);
+});
+
+client.on('authenticated', () => {
+  console.log('🔑 Authentication successful! Loading chats...');
 });
 
 client.on('ready', () => {
@@ -46,9 +63,16 @@ client.on('ready', () => {
   console.log('✅ BOT IS ONLINE AND CONNECTED TO WHATSAPP!');
 });
 
+client.on('auth_failure', (msg) => {
+  console.error('❌ Auth failure:', msg);
+});
+
 const userConversations = new Map();
 
+// Handles incoming messages
 client.on('message', async (msg) => {
+  console.log(`📩 Incoming message from ${msg.from}: ${msg.body}`);
+
   if (msg.isStatus) return;
 
   const chat = await msg.getChat();
@@ -59,7 +83,8 @@ client.on('message', async (msg) => {
   if (!userText) return;
 
   try {
-    await sleep(Math.floor(Math.random() * 2000) + 3000);
+    console.log(`🤖 Processing response for: "${userText}"`);
+    await sleep(2000);
     await chat.sendStateTyping();
 
     if (!userConversations.has(senderId)) {
@@ -74,7 +99,7 @@ client.on('message', async (msg) => {
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: history,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -85,15 +110,15 @@ client.on('message', async (msg) => {
 
     const botReply = response.text?.trim();
     if (botReply) {
+      console.log(`📤 Replying with: "${botReply}"`);
       history.push({ role: 'model', parts: [{ text: botReply }] });
       await msg.reply(botReply);
     }
   } catch (err) {
-    console.error('Error handling message:', err);
+    console.error('❌ Error replying to message:', err);
   }
 });
 
-// A website that shows the clean QR code image in your browser
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
 
@@ -110,7 +135,7 @@ http.createServer((req, res) => {
             <h2 style="color:#128c7e;margin-top:0;">Scan With WhatsApp</h2>
             <p style="color:#555;">Settings &gt; Linked Devices &gt; Link a Device</p>
             <img src="${currentQrImage}" style="width:280px;height:280px;display:block;margin:15px auto;" alt="QR Code" />
-            <small style="color:#888;">This page auto-refreshes every 20 seconds for new codes.</small>
+            <small style="color:#888;">This page auto-refreshes every 20 seconds.</small>
           </div>
         </body>
       </html>
