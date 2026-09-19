@@ -5,9 +5,8 @@ const QRCode = require('qrcode');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { GoogleGenAI } = require('@google/genai');
 
-// --- PREVENT ANY UNEXPECTED CRASHES ---
-process.on('unhandledRejection', (r) => console.log('Handled rejection:', r));
-process.on('uncaughtException', (e) => console.log('Handled exception:', e));
+process.on('unhandledRejection', (r) => console.log('Handled:', r));
+process.on('uncaughtException', (e) => console.log('Handled:', e));
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const knowledgeBase = fs.readFileSync('knowledge.txt', 'utf-8');
@@ -29,6 +28,7 @@ ${knowledgeBase}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// --- ULTRA LOW-MEMORY BROWSER SETTINGS (Under 250MB RAM for Render Free Tier) ---
 const client = new Client({
   authStrategy: new LocalAuth(),
   webVersionCache: {
@@ -37,22 +37,35 @@ const client = new Client({
   },
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process', // CRUCIAL: Runs Chrome in 1 process instead of 6 to save RAM
+      '--disable-accelerated-2d-canvas',
+      '--js-flags=--max-old-space-size=256', // Hard limit JS to 256MB RAM
+    ],
   },
 });
 
 let currentQrImage = null;
-client.on('qr', async (qr) => { currentQrImage = await QRCode.toDataURL(qr); });
+client.on('qr', async (qr) => { 
+  console.log('⚡ New QR code ready!');
+  currentQrImage = await QRCode.toDataURL(qr); 
+});
 client.on('authenticated', () => console.log('🔑 Authenticated!'));
-client.on('ready', () => { currentQrImage = null; console.log('✅ BOT IS ONLINE!'); });
+client.on('ready', () => { 
+  currentQrImage = null; 
+  console.log('✅ BOT IS ONLINE!'); 
+});
 
-// In-memory chat storage
 const userConversations = new Map();
-
-// Message buffers for handling rapid-fire messages: Map<senderId, { texts: [], timer: Timeout }>
 const userBuffers = new Map();
 
-// --- CLEAN HISTORY HELPER ---
 function getCleanHistory(rawHistory) {
   const clean = [];
   for (const item of rawHistory) {
@@ -68,7 +81,6 @@ function getCleanHistory(rawHistory) {
   return clean;
 }
 
-// --- SILENT RETRY ENGINE ---
 async function askGemini(history) {
   const cleanHistory = getCleanHistory(history);
 
@@ -89,14 +101,12 @@ async function askGemini(history) {
   return null;
 }
 
-// --- PROCESS BUNDLED MESSAGES (Called after customer finishes typing) ---
 async function processCustomerBatch(sender, lastMsg) {
   const buffer = userBuffers.get(sender);
   if (!buffer || buffer.texts.length === 0) return;
 
-  // Combine all separate messages into one clean text
   const combinedMessage = buffer.texts.join('\n');
-  buffer.texts = []; // Clear buffer
+  buffer.texts = [];
 
   console.log(`📦 Bundled message from [${sender}]:\n"${combinedMessage}"`);
 
@@ -108,10 +118,8 @@ async function processCustomerBatch(sender, lastMsg) {
   if (!userConversations.has(sender)) userConversations.set(sender, []);
   const history = userConversations.get(sender);
 
-  // Add the combined user input
   history.push({ role: 'user', parts: [{ text: combinedMessage }] });
 
-  // Keep last 50 messages of conversation
   if (history.length > 50) {
     history.splice(0, history.length - 50);
   }
@@ -125,7 +133,6 @@ async function processCustomerBatch(sender, lastMsg) {
   }
 }
 
-// --- MESSAGE LISTENER ---
 client.on('message', async (msg) => {
   try {
     if (msg.isStatus || msg.from.includes('@g.us') || msg.broadcast) return;
@@ -142,12 +149,11 @@ client.on('message', async (msg) => {
     const buffer = userBuffers.get(sender);
     buffer.texts.push(text);
 
-    // Reset the 3.5-second timer on every incoming message
     if (buffer.timer) {
       clearTimeout(buffer.timer);
     }
 
-    // Wait 3.5 seconds for the customer to stop sending messages
+    // Wait 3.5 seconds for customer to finish typing multiple messages
     buffer.timer = setTimeout(() => {
       processCustomerBatch(sender, msg);
     }, 3500);
