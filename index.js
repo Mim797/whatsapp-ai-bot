@@ -11,19 +11,23 @@ process.on('uncaughtException', (e) => console.log('Handled exception:', e));
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const knowledgeBase = fs.readFileSync('knowledge.txt', 'utf-8');
 
-// --- تعليمات البائع الجزائري المحترف ---
+// --- عقلية التاجر الذكي المحنك (Consultative Salesman) ---
 const SYSTEM_INSTRUCTION = `
-أنت بائع بشري محترف في متجر BHB STORE على الواتساب.
-تتحدث بالدارجة الجزائرية فقط (أسلوب محترم، لبق، وطبيعي 100% مثلما يتحدث الباعة في الجزائر).
+أنت تاجر وبائع بشري ذكي جداً ومحنك في متجر BHB STORE على الواتساب.
+تتحدث بالدارجة الجزائرية الطبيعية 100%. أسلوبك مثل خيرة التجار في الجزائر: مهذب، لبق، وذكي.
 
-قواعد أساسية لضمان ردود بشرية كاملة:
-1. الالتزام بملف المتجر: اعتمد 100% على السلع والأسعار والعروض المكتوبة في "معلومات المتجر والمنتجات" أدناه. إذا سأل الزبون على سلعة غير موجودة في هذا الملف، قل له باحترام أنها غير متوفرة حالياً.
-2. جمل كاملة ومنتهية دائماً: ممنوع تماماً أن تتوقف في نصف الكلمة أو نصف الجملة. أكمل رسالتك دائماً حتى آخر نقطة.
-3. دارجة جزائرية فقط: ممنوع منعاً باتاً كتابة أي جملة بالإنجليزية، وممنوع إخراج نصوص برمجية أو رموز غريبة مثل (** أو ### أو ):**).
-4. أسلوب الواتساب: نسق إجابتك بأسطر قصيرة ونقاط واضحة ومقروءة على شاشة الهاتف.
-5. لا تكرر الترحيب: رحب بالزبون في أول رسالة فقط. في باقي الرسائل، أجب عن سؤاله مباشرة دون إعادة الترحيب من البداية.
+قواعد التاجر الذكي (ممنوع خرقها):
+1. ممنوع تفريغ الكتالوج دفعة واحدة: إذا قال الزبون "واش عندكم؟"، لا تعطيه قائمة الأسعار كاملة وجريدة طويلة. قل له باختصار شديد: (حنا نبيعو أكسسوارات إلكترونية ذكية أصلية كيما ليزيكوتور والساعات الذكية. واش راك تحوس بالتحديد خويا العزيز؟).
+2. الردود قصيرة جداً (Bite-sized): ردودك يجب أن تكون سطرين أو ثلاثة فقط كأي إنسان يكتب بالهاتف. لا تكتب فقرات طويلة أبداً.
+3. التدرج في البيع (خطوة بخطوة):
+   - افهم حاجة الزبون أولاً.
+   - اقترح منتجاً واحداً يناسب طلبه مع ميزة واحدة مهمة وسعره.
+   - اختم كلامك دائماً بسؤال واحد بسيط يوجهه للشراء (مثلاً: واش رايك؟ تحب اللون الأسود ولا الأبيض؟).
+4. الرد على قدر السؤال: إذا سألك على سعر حاجة، أعطه سعرها مباشرة بدون أن تفرض عليه باقي السلع، ثم اسأله إن كان يريد حجزها.
+5. الالتزام الصارم بملف المتجر: كل الأسعار والمواصفات تكون 100% من الكتالوج أدناه. ممنوع الكذب أو اختراع قصص.
+6. لا تكرر الترحيب: رحب في أول رسالة فقط.
 
---- معلومات المتجر والمنتجات ---
+--- كتالوج المتجر ---
 ${knowledgeBase}
 `;
 
@@ -42,12 +46,11 @@ const client = new Client({
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-extensions',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',
+      '--mute-audio',
       '--disable-accelerated-2d-canvas',
-      '--js-flags=--max-old-space-size=256',
+      '--js-flags=--max-old-space-size=200',
     ],
   },
 });
@@ -60,11 +63,30 @@ client.on('qr', async (qr) => {
 client.on('authenticated', () => console.log('🔑 Authenticated!'));
 client.on('ready', () => { 
   currentQrImage = null; 
-  console.log('✅ BOT IS ONLINE!'); 
+  console.log('✅ BOT IS ONLINE AND STABLE!'); 
 });
 
-const userConversations = new Map();
+// --- إدارة الذاكرة التلقائية لـ 50+ محادثة متزامنة (Auto RAM Cleanup) ---
+// Structure: Map<senderId, { history: [], lastActive: timestamp }>
+const activeChats = new Map();
 const userBuffers = new Map();
+
+// تنظيف الذاكرة تلقائياً كل 10 دقائق (حذف المحادثات القديمة التي مضى عليها أكثر من ساعتين لتوفير الرام)
+setInterval(() => {
+  const now = Date.now();
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  for (const [sender, data] of activeChats.entries()) {
+    if (now - data.lastActive > TWO_HOURS) {
+      activeChats.delete(sender);
+      console.log(`🧹 Cleared inactive chat from RAM: ${sender}`);
+    }
+  }
+  // إذا زاد عدد المحادثات عن 100 في نفس الوقت، يتم حذف الأقدم فوراً
+  if (activeChats.size > 100) {
+    const oldestKey = activeChats.keys().next().value;
+    activeChats.delete(oldestKey);
+  }
+}, 10 * 60 * 1000);
 
 function getCleanHistory(rawHistory) {
   const clean = [];
@@ -96,23 +118,20 @@ async function askGemini(history) {
 
   for (const modelName of PRIORITY_MODELS) {
     try {
-      console.log(`🤖 Trying ${modelName}...`);
       const res = await ai.models.generateContent({
         model: modelName,
         contents: cleanHistory,
         config: { 
           systemInstruction: SYSTEM_INSTRUCTION, 
-          temperature: 0.2,
-          maxOutputTokens: 2000 // مساحة كافية جداً لإنهاء كل جملة بدون انقطاع
+          temperature: 0.3, // توازن مثالي بين الذكاء البشري والالتزام بالكتالوج
+          maxOutputTokens: 300 // ردود قصيرة وسريعة كأي إنسان عادي
         },
       });
 
       const text = res.text?.trim();
-      if (text) {
-        return text;
-      }
+      if (text) return text;
     } catch (err) {
-      console.log(`⚠️ ${modelName} unavailable (${err.status || err.message}). Switching...`);
+      console.log(`⚠️ ${modelName} busy. Switching to next...`);
       await sleep(500);
     }
   }
@@ -126,20 +145,26 @@ async function processCustomerBatch(sender, lastMsg) {
   const combinedMessage = buffer.texts.join('\n');
   buffer.texts = [];
 
-  console.log(`📦 Bundled message from [${sender}]:\n"${combinedMessage}"`);
+  console.log(`📦 [${sender}]: "${combinedMessage}"`);
 
   try {
     const chat = await lastMsg.getChat();
     await chat.sendStateTyping();
   } catch (e) {}
 
-  if (!userConversations.has(sender)) userConversations.set(sender, []);
-  const history = userConversations.get(sender);
+  if (!activeChats.has(sender)) {
+    activeChats.set(sender, { history: [], lastActive: Date.now() });
+  }
+
+  const userSession = activeChats.get(sender);
+  userSession.lastActive = Date.now(); // تحديث توقيت التفاعل
+  const history = userSession.history;
 
   history.push({ role: 'user', parts: [{ text: combinedMessage }] });
 
-  if (history.length > 50) {
-    history.splice(0, history.length - 50);
+  // حفظ آخر 20 رسالة فقط لكل زبون لتبقى الرام خفيفة جداً
+  if (history.length > 20) {
+    history.splice(0, history.length - 20);
   }
 
   const reply = await askGemini(history);
@@ -171,7 +196,7 @@ client.on('message', async (msg) => {
       clearTimeout(buffer.timer);
     }
 
-    // انتظر 3 ثوانٍ ليفرغ الزبون من كتابة رسائله المتتالية
+    // الانتظار 3 ثوانٍ قبل المعالجة
     buffer.timer = setTimeout(() => {
       processCustomerBatch(sender, msg);
     }, 3000);
